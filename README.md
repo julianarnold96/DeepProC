@@ -1,4 +1,4 @@
-# DeepProC
+# DeepProC - a deep learnig model for proteasomal cleavage prediciton
 Implementation of my Master's Thesis - „Elucidation of Proteasomal Cleavage Pattern from HLA peptidome data through Machine Learning”
 
 DeepProC is a deep learnig model for proteasomal cleavage prediciton. Accurate cleavage predictions could further increase the effectiveness of epitope-based vaccines. 
