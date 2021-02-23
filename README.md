@@ -28,6 +28,6 @@ Followed by the length regularization layer scaling the input down to the optima
 
 Results:
 
-The accuracy of DeepProC was pretty high, especially compared to state-of-the-art proteasomal cleavage predictors:
+The accuracy of DeepProC was pretty high, especially compared to state-of-the-art proteasomal cleavage predictors and the Ridge classifier fit as a baseline:
 
 <img width="1009" alt="vivocomp" src="https://user-images.githubusercontent.com/56801215/108821006-4dd4ea00-75bd-11eb-97ac-2ac4df5bdc30.png">
