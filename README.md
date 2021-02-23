@@ -26,7 +26,7 @@ In the first steps, negatives are generated using one of two mechanisms:
 <img width="707" alt="negatives" src="https://user-images.githubusercontent.com/56801215/108819335-051c3180-75bb-11eb-84e8-f3c35f968ca1.png">
 </p>
 
-Followed by the length regularization layer scaling the input down to the optimal size needed for accurate predictions, with a CNN encoding the information contained in the peptide sequences. Afterwards, the attention weights between the epitope and the mutliple possible parent proteins are computed, and fed into the predictor head, a smaller CNN. The resulting noisy predictions are then possibly flipped in the noise layer, before the final predictions are made:
+Followed by the length regularization layer scaling the input down to the optimal size needed for accurate predictions, with a CNN encoding the information contained in the peptide sequences next up. Afterwards, the attention weights between the epitope and the mutliple possible parent proteins are computed, and fed into the predictor head, a smaller CNN. The resulting noisy predictions are then possibly flipped in the noise layer, before the final predictions are made:
 
 <p align="center">
 <img width="939" alt="noiselayer" src="https://user-images.githubusercontent.com/56801215/108820245-321d1400-75bc-11eb-89ab-152ce33ff3fd.png">
