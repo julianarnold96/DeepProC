@@ -69,9 +69,7 @@ class CleavagePredictor:
         torch.nn.utils.clip_grad_norm_(self._nnet.parameters(), 0.25)
         self._optimizer.step()
         if self._keep_noise_constant:
-            #print(self._keep_noise_constant, 'in fit', self._nnet.noise_layer.b.weight.data, 'bf') 
             self._nnet.noise_layer.b.weight.data.fill_(-4.6)
-        #print(self._keep_noise_constant, 'in fit', self._nnet.noise_layer.b.weight.data, 'af') 
 
         return predictions
 
@@ -100,9 +98,6 @@ class CleavagePredictor:
                 for cb in self._callbacks
             )
 
-            #if np.sum(np.isnan(predictions.loss))>0:
-            #     for name, param in self._nnet.named_parameters():
-            #         print(name, param.data)
             assert predictions.loss is not None, self._print_params
             assert np.isfinite(predictions.loss), print(predictions.loss, predictions.loss is None)
 
@@ -243,10 +238,7 @@ class CleavagePredictor:
                     val_auc, val_ano, val_f1, val_mcc, val_mse, val_acc, val_xen, val_best
                 )
             )
-            print('epoch:',epoch)
-            print('noise (b, sigmoid(b)):', self._nnet.noise_layer.b.weight.data, torch.sigmoid(self._nnet.noise_layer.b.weight.data))
-            print('amino acids left:', torch.sum(torch.round(self._nnet.length_regulator.weights.weight.data[0][0:15])))
-            print('amino acids right:',torch.sum(torch.round(self._nnet.length_regulator.weights.weight.data[0][15:30])))
+
             if start_noise is None:
                 if self._stop_training and self._keep_noise_constant:
                      self._keep_noise_constant = False
@@ -258,7 +250,41 @@ class CleavagePredictor:
             elif epoch == start_noise:
                 self._keep_noise_constant = False
 
-class PositionalLengthRegularization(nn.Module):
+
+  class CleavagePredictorNetwork(nn.Module):
+    def __init__(self, length_regulator, protein_encoder, attention_model, head, noise_layer, device, batch_size):
+        super().__init__()
+        self.length_regulator = length_regulator
+        self.protein_model = protein_encoder
+        self.attention_model = attention_model
+        self.head = head
+        self.noise_layer = noise_layer
+        self.output = nn.Linear(self.head.output_shape(), 1)
+        self.loss_fun = nn.BCEWithLogitsLoss()
+        self.device = device
+       
+    def forward(self, mask, proteins, label=None):  
+        xprot = self.protein_model(proteins)
+        alphas, att_weights = self.attention_model(xprot, mask)
+        x = self.head(att_weights)
+
+        # compute noisy predictions
+        noisy_outs = self.output(x).squeeze()
+
+        # apply noise layer
+        outs = self.noise_layer(noisy_outs)
+        
+        # compute loss if necessary
+        loss = None
+        if label is not None:
+            loss = self.loss_fun(outs, label)
+            loss += 0.5e-0 * self.length_regulator.length_reg()
+            loss += self.noise_layer.noise_reg()
+            return Predictions(logits = outs,alphas = alphas,loss = loss)
+        else:         
+            return Predictions(logits = outs,alphas = alphas)
+        
+  class PositionalLengthRegularization(nn.Module):
 
       """
     
@@ -294,6 +320,7 @@ class PositionalLengthRegularization(nn.Module):
         length_reg = torch.round(length_reg) 
         return x * length_reg.view(self.aa_left+self.aa_right)
 
+    
 class NoLengthRegularization(nn.Module):
 
       def __init__(self,device, punishment_weight_left = 0.075, punishment_weight_right = 0.35, aa_left = 15, aa_right = 15):
@@ -417,105 +444,6 @@ class PeptideEncoder(nn.Sequential):
 
     def output_shape(self):
         return self._out_dim
-      
-
-class PredictorHead(nn.Sequential):
-    def __init__(self, input_size, blocks=3, factor=2, dropout=0.5):
-        layers = [nn.Dropout(dropout)]
-        for i in range(blocks):
-            layers.extend([
-                nn.Linear(input_size // int(factor**i), input_size // int(factor**(i + 1))),
-                nn.BatchNorm1d(input_size // int(factor**(i + 1))),
-                nn.LeakyReLU(),
-            ])
-
-        self._output_shape = input_size // int(factor**(i + 1))
-        super().__init__(*layers)
-
-    def output_shape(self):
-        return self._output_shape
-
-class NoiseLayer(nn.Module):
-
-    """
-    
-    the noise weight, b, is intialized at -4.6 -> sigmoid(-4.6) = 0.01
-    after each update it is refilled with -4.6 (in _fit_batch) until self._keep_noise_constant is set to False
-    on default (start_noise = None) self._keep_noise_constant gets switched to False after first convergence
-    otherwise, start_noise activates the noise_layer after a epoch == start_noise
-
-    for regularization, noise_reg(self) = abs(0.5 - b) is added to the loss
-    
-    """
-
-    def __init__(self, device):
-        super().__init__()
-        self.device = device
-        self.b = nn.Linear(1,1,bias = False)
-        self.b.weight.data.fill_(-4.6)
- 
-    def forward(self, noisy_outs):
-        clean_outs =  noisy_outs + torch.sigmoid(self.b.weight) - torch.sigmoid(self.b.weight) * noisy_outs
-        clean_outs =  clean_outs.view(len(noisy_outs))
-        return clean_outs
-
-    def noise_reg(self):
-        noise_reg = torch.sigmoid(self.b.weight)
-        noise_reg = abs(0.5 - noise_reg)
-        return noise_reg.view([])
-
-class CleavagePredictorNetwork(nn.Module):
-    def __init__(self, length_regulator, protein_encoder, attention_model, head, noise_layer, device, batch_size):
-        super().__init__()
-        self.length_regulator = length_regulator
-        self.protein_model = protein_encoder
-        self.attention_model = attention_model
-        self.head = head
-        self.noise_layer = noise_layer
-        self.output = nn.Linear(self.head.output_shape(), 1)
-        self.loss_fun = nn.BCEWithLogitsLoss()
-        self.device = device
-        #self.noise_layer.b.requires_grad = False
-       
-    def forward(self, mask, proteins, label=None):  
-        xprot = self.protein_model(proteins)
-        if torch.sum(torch.isnan(xprot))>0:
-           #import pdb; pdb.set_trace()
-           print('xprot are nan', xprot)
-        
-        alphas, att_weights = self.attention_model(xprot, mask)
-        if torch.sum(torch.isnan(att_weights))>0:
-           print('att_weights are nan', att_weights, 'xprot', xprot, 'proteins', proteins)
-        x = self.head(att_weights)
-        if torch.sum(torch.isnan(x))>0:
-           print('x is nan', x)
-        # compute noisy predictions
-        noisy_outs = self.output(x).squeeze()
-        if torch.sum(torch.isnan(noisy_outs))>0:
-           #import pdb; pdb.set_trace()
-           print('noisy_outs are nan', noisy_outs)
-        # apply noise layer
-        #outs = noisy_outs
-        outs = self.noise_layer(noisy_outs)
-        # compute loss if necessary
-        loss = None
-        if torch.sum(torch.isnan(outs))>0:
-           #import pdb; pdb.set_trace()
-           print('outs are nan', outs)
-        if torch.sum(torch.isnan(label))>0:
-           #import pdb; pdb.set_trace()
-           print('label are nan', label)
-        if label is not None:
-            loss = self.loss_fun(outs, label)
-            loss += 0.5e-0 * self.length_regulator.length_reg()
-            loss += self.noise_layer.noise_reg()
-            return Predictions(logits = outs,alphas = alphas,loss = loss)
-        else:         
-            return Predictions(logits = outs,alphas = alphas)
-
-
-                
-
 
 
 class AttentionModule(nn.Module, abc.ABC):
@@ -527,14 +455,23 @@ class AttentionModule(nn.Module, abc.ABC):
     @abc.abstractmethod
     def forward(self, xprot, mask):
         '''
+        
         compute attention between peptides and mhcs. return a tuple with the
         attention weights and the weighted results of shape (bags, d)
         xprot.shape = (instances, dim_prot)
         mask.shape = (bags, instances)
+        
         '''
 
 
 class KeyedAttention(AttentionModule):
+    '''
+    
+    keyed attention where the hidden states are the concatenation
+    of mhc and peptide representations.
+    A. Vaswani, N. Shazeer, D. Metaxas, and A. Odena. “Attention is all you need”. In: Advances in neural information processing systems (2017).
+    
+    '''
 
     def __init__(self, protein_size, size=128, separate_key_value=True, batch_size=512):
         super().__init__()
@@ -563,49 +500,31 @@ class KeyedAttention(AttentionModule):
         queries = self.bnq(self.query_network(xprot))
         values = self.bnk(self.key_network(xprot))
         weights = keys @ queries.t()/(self._batch_size)  #shape: (prots,prots)
-        if torch.sum(torch.isnan(weights)) > 0:
-          print('weights are nan', weights, queries, keys)
         exps = torch.exp(weights)
-        if torch.sum(torch.isnan(exps)) > 0:
-          print('exps are nan', exps, 'prots',keys, queries,'weights', weights, 'mean weights', torch.mean(weights), 'mean prots', torch.mean(prots), 1/np.sqrt(self._size) )
 
         mask = mask.unsqueeze(0).expand(1,-1, -1)
         mask = mask.view(mask.shape[-2],mask.shape[-1])
         prot_mask = mask + (1-mask)*1e-6 + mask*1e-6 #shape: (bag_size, prots)   
-        if torch.sum(torch.isnan(prot_mask)) > 0:
-          print('prot_mask are nan', prot_mask)
-
         mask = prot_mask.t() @ prot_mask
         mask =  mask + (1-mask)*1e-6 + mask*1e-6 #shape: (prots,prots)
-        if torch.sum(torch.isnan(mask)) > 0:
-          print('mask are nan', mask)
-
         masked_exps = exps * mask #shape(prots,prots)
-        if torch.sum(torch.isnan(masked_exps)) > 0:
-          print('masked_exps are nan', masked_exps)
+
         bag_normalizer = torch.sum(masked_exps @ prot_mask.t(), dim=0) #shape: (bag_size)
-        if torch.sum(torch.isnan(bag_normalizer)) > 0:
-          print('bag_normalizer are nan', bag_normalizer)
         expanded_normalizer = mask * torch.unsqueeze(bag_normalizer @ prot_mask, 0)+1e-6 #shape: (prots,prots)
-        if torch.sum(torch.isnan(expanded_normalizer)) > 0:
-          print('expanded_normalizer are nan', expanded_normalizer)
-
         prot_weights = masked_exps.sum(dim=0) / (1e-6+(bag_normalizer @ prot_mask)) #shape: (prots)
-        if torch.sum(torch.isnan(prot_weights)) > 0:
-          print('prot_weights are nan', prot_weights)
-
         bag_weighted_prot_values = prot_mask @ (values.t() * prot_weights).t() #shape: (bag_size,_size)
-        if torch.sum(torch.isnan(bag_weighted_prot_values)) > 0:
-          print('exps are nan', 'prots shape', keys.shape,'max weights',torch.max(torch.abs(weights)),exps, 'prots',keys,queries,values,'weights', weights, 'mean weights', torch.mean(weights), 'mean prots', torch.mean(keys),'max prots',torch.max(keys), torch.max(queries), 1/np.sqrt(self._size) )
-          print('bag_weighted_prot_values are nan', bag_weighted_prot_values, 'pw', prot_weights, 'en', expanded_normalizer, 'bn', bag_normalizer, 'me', masked_exps, 'exps', exps, 'weights', weights, 'prot_mask', prot_mask)
+
         return masked_exps / expanded_normalizer, bag_weighted_prot_values
 
+    
 class GatedAttention(AttentionModule):
     '''
+    
     gated additive attention where the hidden states are the concatenation
     of mhc and peptide representations.
     D. Bahdanau, K. Cho, and Y. Bengio. “Neural Machine Translation by Jointly
     Learning to Align and Translate”. In: arXiv e-prints abs/1409.0473 (2014).
+    
     '''
 
     def __init__(self, protein_size, size=128):
@@ -636,37 +555,64 @@ class GatedAttention(AttentionModule):
         prots1 = self.w_1(torch.tanh(self.v_1(xprot)) * torch.sigmoid(self.u_1(xprot)))
         prots2 = self.w_2(torch.tanh(self.v_2(xprot)) * torch.sigmoid(self.u_2(xprot)))
         weights = prots1 + prots2.t()
-
         exps = torch.exp(weights)
-        if torch.sum(torch.isnan(exps)) > 0:
-          print('exps are nan', exps, 'prots',prots1, ports2,'weights', weights, 'mean weights', torch.mean(weights), 'mean prots', torch.mean(prots), 1/np.sqrt(self._size) )
-
+        
         prot_mask = mask + (1-mask)*1e-6 + mask*1e-6 #shape: (bag_size, prots)   
-        if torch.sum(torch.isnan(prot_mask)) > 0:
-          print('prot_mask are nan', prot_mask)
-
         mask = prot_mask.t() @ prot_mask
         mask =  mask + (1-mask)*1e-6 + mask*1e-6 #shape: (prots,prots)
-        if torch.sum(torch.isnan(mask)) > 0:
-          print('mask are nan', mask)
-
         masked_exps = exps * mask #shape(prots,prots)
-        if torch.sum(torch.isnan(masked_exps)) > 0:
-          print('masked_exps are nan', masked_exps)
+        
         bag_normalizer = torch.sum(masked_exps @ prot_mask.t(), dim=0) #shape: (bag_size)
-        if torch.sum(torch.isnan(bag_normalizer)) > 0:
-          print('bag_normalizer are nan', bag_normalizer)
         expanded_normalizer = mask * torch.unsqueeze(bag_normalizer @ prot_mask, 0)+1e-6 #shape: (prots,prots)
-        if torch.sum(torch.isnan(expanded_normalizer)) > 0:
-          print('expanded_normalizer are nan', expanded_normalizer)
-
         prot_weights = masked_exps.sum(dim=0) / (1e-6+(bag_normalizer @ prot_mask)) #shape: (prots)
-        if torch.sum(torch.isnan(prot_weights)) > 0:
-          print('prot_weights are nan', prot_weights)
-
         bag_weighted_prot_values = prot_mask @ (xprot.t() * prot_weights).t() #shape: (bag_size,_size)
-        if torch.sum(torch.isnan(bag_weighted_prot_values)) > 0:
-          print('exps are nan', 'prots shape', prots1.shape,'max weights',torch.max(torch.abs(weights)),exps, 'prots',prots1,prots2,'weights', weights, 'mean weights', torch.mean(weights), 'mean prots', torch.mean(prots1),'max prots',torch.max(prots1), torch.max(prots2), 1/np.sqrt(self._size) )
-          print('bag_weighted_prot_values are nan', bag_weighted_prot_values, 'pw', prot_weights, 'en', expanded_normalizer, 'bn', bag_normalizer, 'me', masked_exps, 'exps', exps, 'weights', weights, 'prot_mask', prot_mask)
+        
         return masked_exps / expanded_normalizer, bag_weighted_prot_values
+    
+    
+class PredictorHead(nn.Sequential):
+    def __init__(self, input_size, blocks=3, factor=2, dropout=0.5):
+        layers = [nn.Dropout(dropout)]
+        for i in range(blocks):
+            layers.extend([
+                nn.Linear(input_size // int(factor**i), input_size // int(factor**(i + 1))),
+                nn.BatchNorm1d(input_size // int(factor**(i + 1))),
+                nn.LeakyReLU(),
+            ])
+
+        self._output_shape = input_size // int(factor**(i + 1))
+        super().__init__(*layers)
+
+    def output_shape(self):
+        return self._output_shape
+
+    
+class NoiseLayer(nn.Module):
+
+    """
+    
+    the noise weight, b, is intialized at -4.6 -> sigmoid(-4.6) = 0.01
+    after each update it is refilled with -4.6 (in _fit_batch) until self._keep_noise_constant is set to False
+    on default (start_noise = None) self._keep_noise_constant gets switched to False after first convergence
+    otherwise, start_noise activates the noise_layer after a epoch == start_noise
+
+    for regularization, noise_reg(self) = abs(0.5 - b) is added to the loss
+    
+    """
+
+    def __init__(self, device):
+        super().__init__()
+        self.device = device
+        self.b = nn.Linear(1,1,bias = False)
+        self.b.weight.data.fill_(-4.6)
+ 
+    def forward(self, noisy_outs):
+        clean_outs =  noisy_outs + torch.sigmoid(self.b.weight) - torch.sigmoid(self.b.weight) * noisy_outs
+        clean_outs =  clean_outs.view(len(noisy_outs))
+        return clean_outs
+
+    def noise_reg(self):
+        noise_reg = torch.sigmoid(self.b.weight)
+        noise_reg = abs(0.5 - noise_reg)
+        return noise_reg.view([])
 
