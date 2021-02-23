@@ -5,7 +5,7 @@ DeepProC is a deep learnig model for proteasomal cleavage prediciton. Accurate c
 
 ## Difficulties with peptidome data:
 1) negative samples (non-cleavage sites) remain unknown as only cleavage sites can be measured ⮕ negative labels need to be generated artificially, leaving us with an uncertainty in the negative labels
-2) one measured epitope can stem from multiple different parent proteins leaving us with multiple-instance learning problem 
+2) one measured epitope can stem from multiple different parent proteins ⮕ with multiple-instance learning problem 
 
 ## Solutions:
 1) label-flipping noise layer to account for the uncertainty in
