@@ -13,6 +13,7 @@ negative labels
 2) attention-based multiple instance learning to deal with multiple
 parent proteins
 
+# Network:
 After hyperparamter optimization this results in a network architecture as follows:
 
 <img width="669" alt="networkarchitecture" src="https://user-images.githubusercontent.com/56801215/108819037-96d76f00-75ba-11eb-88e8-56757a6a3665.png">
