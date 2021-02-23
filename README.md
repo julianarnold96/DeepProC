@@ -13,6 +13,25 @@ negative labels
 2) attention-based multiple instance learning to deal with multiple
 parent proteins
 
-This results in a network architecture as follows:
+After hyperparamter optimization this results in a network architecture as follows:
 
 <img width="669" alt="networkarchitecture" src="https://user-images.githubusercontent.com/56801215/108819037-96d76f00-75ba-11eb-88e8-56757a6a3665.png">
+
+In the first steps, negatives are generated using one of two mechanisms:
+
+<img width="707" alt="negatives" src="https://user-images.githubusercontent.com/56801215/108819335-051c3180-75bb-11eb-84e8-f3c35f968ca1.png">
+
+Followed by the length regularization layer scaling the input down to the optimal size needed for accurate predictions and a CNN consisting of multiple of the following blocks:
+
+<img width="787" alt="finalCNN" src="https://user-images.githubusercontent.com/56801215/108819833-9ee3de80-75bb-11eb-92b5-ba692ebd2129.png">
+
+The next layer computes the attention weights between the epitope and the mutliple possible parent proteins, these are fed into the predictor head, a smaller CNN. The resulting noisy predictions are then possibly flipped in the noise layer, before the final predictions are made:
+
+<img width="939" alt="noiselayer" src="https://user-images.githubusercontent.com/56801215/108820245-321d1400-75bc-11eb-89ab-152ce33ff3fd.png">
+
+
+Results:
+
+The accuracy of DeepProC was pretty high, especially compared to state-of-the-art proteasomal cleavage predictors:
+
+<img width="1009" alt="vivocomp" src="https://user-images.githubusercontent.com/56801215/108821006-4dd4ea00-75bd-11eb-97ac-2ac4df5bdc30.png">
