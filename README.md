@@ -4,7 +4,7 @@ Implementation of my Master's Thesis - „Elucidation of Proteasomal Cleavage Pa
 DeepProC is a deep learnig model for proteasomal cleavage prediciton. Accurate cleavage predictions could further increase the effectiveness of epitope-based vaccines. 
 
 ## Difficulties with peptidome data:
-1) negative samples (non-cleavage sites) remain unknown as only cleavage sites can be measured -> negative labels need to be generated artificially, leaving us with an uncertainty in the negative labels
+1) negative samples (non-cleavage sites) remain unknown as only cleavage sites can be measured ⮕ negative labels need to be generated artificially, leaving us with an uncertainty in the negative labels
 2) one measured epitope can stem from multiple different parent proteins leaving us with multiple-instance learning problem 
 
 ## Solutions:
